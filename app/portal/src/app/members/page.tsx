@@ -65,7 +65,12 @@ async function MembersContent({
           {tenant ? `${tenant.name} members` : "Members"}
         </h1>
         {tenant ? (
-          <MembersList key={tenant.slug} tenantSlug={tenant.slug} />
+          <MembersList
+            key={tenant.slug}
+            tenantSlug={tenant.slug}
+            currentUserId={user.id}
+            canEditRoles={tenant.role === "ADMIN"}
+          />
         ) : (
           <p className="mt-6 text-sm text-zinc-600 dark:text-zinc-400">
             You do not belong to an organization yet.

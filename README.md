@@ -106,7 +106,7 @@ All variables live in the root `.env`. `.env.example` lists every one of them.
 - `GET /members?page=1` returns `{ success, message, error, data }`, where `data` includes `members`, `page`, `pageSize`, `total`, and `totalPages`.
 - `PATCH /members/:userId` accepts `{ "role": "ADMIN" }` or `{ "role": "MEMBER" }`. Only an administrator of the selected organization can update a role. The API checks current database membership, prevents self-demotion, and returns the updated member.
 - Both API routes require a bearer token and `x-tenant-id`. The API validates tenant access in PostgreSQL; the header alone does not grant access.
-- The portal's role-edit controls are still to do. To exercise the backend route now, use an API client.
+- On the members page, each row has an ellipsis menu with View Details and Update Role. Both options open a dialog; admins can update another member's role there. The page shows the new role and a toast after success, or an error when the update fails. The portal sends the change through its own route handler, which reads the httpOnly session cookie and calls the API.
 
 For a database created before account status was added, run `pnpm db:deploy` to add the `users.status` column. Existing users default to `ACTIVE`.
 

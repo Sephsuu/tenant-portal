@@ -1,4 +1,4 @@
-import type { ApiResponse, MembersPage } from "@/types";
+import type { ApiResponse, Member, MembersPage, TenantRole } from "@/types";
 
 export async function getMembers(
   tenantSlug: string,
@@ -21,6 +21,26 @@ export async function getMembers(
     throw new Error(
       "The members API returned an outdated response. Restart the API and try again.",
     );
+  }
+  return result.data;
+}
+
+export async function updateMemberRole(
+  tenantSlug: string,
+  userId: string,
+  role: TenantRole,
+): Promise<Member> {
+  const response = await fetch(
+    `/api/members/${encodeURIComponent(userId)}?tenant=${encodeURIComponent(tenantSlug)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role }),
+    },
+  );
+  const result = (await response.json().catch(() => null)) as ApiResponse<Member> | null;
+  if (!response.ok || !result?.success || !result.data) {
+    throw new Error(result?.message || `Could not update role (HTTP ${response.status}).`);
   }
   return result.data;
 }

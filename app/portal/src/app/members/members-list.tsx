@@ -3,15 +3,33 @@
 import { useEffect, useState } from "react";
 import { AppBadge } from "@/components/AppBadge";
 import { AppButton } from "@/components/AppButton";
+import { AppDialog } from "@/components/AppDialog";
+import { AppDropdown } from "@/components/AppDropdown";
+import { AppPagination } from "@/components/AppPagination";
+import { AppSelect } from "@/components/AppSelect";
 import { AppSkeleton } from "@/components/AppSkeleton";
-import { getMembers } from "@/lib/members";
-import type { MembersPage } from "@/types";
+import { AppToaster } from "@/components/AppToaster";
+import { getMembers, updateMemberRole } from "@/lib/members";
+import type { MembersPage, TenantRole } from "@/types";
 
-export function MembersList({ tenantSlug }: { tenantSlug: string }) {
+export function MembersList({
+  tenantSlug,
+  currentUserId,
+  canEditRoles,
+}: {
+  tenantSlug: string;
+  currentUserId: string;
+  canEditRoles: boolean;
+}) {
   const [result, setResult] = useState<MembersPage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [attempt, setAttempt] = useState(0);
+  const [panel, setPanel] = useState<{ id: string; mode: "details" | "role" } | null>(null);
+  const [role, setRole] = useState<TenantRole>("MEMBER");
+  const [saving, setSaving] = useState(false);
+  const [roleError, setRoleError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; variant: "success" | "error" } | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -34,7 +52,29 @@ export function MembersList({ tenantSlug }: { tenantSlug: string }) {
   function changePage(nextPage: number) {
     setResult(null);
     setError(null);
+    setPanel(null);
     setPage(nextPage);
+  }
+
+  async function saveRole(userId: string) {
+    if (saving) return;
+    setSaving(true);
+    setRoleError(null);
+    try {
+      const member = await updateMemberRole(tenantSlug, userId, role);
+      setResult((current) => current && {
+        ...current,
+        members: current.members.map((item) => item.id === member.id ? member : item),
+      });
+      setPanel(null);
+      setToast({ message: `${member.name}'s role was updated.`, variant: "success" });
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "Could not update role.";
+      setRoleError(message);
+      setToast({ message, variant: "error" });
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (error) {
@@ -68,6 +108,10 @@ export function MembersList({ tenantSlug }: { tenantSlug: string }) {
       </div>
     );
   }
+
+  const selectedMember = panel
+    ? result.members.find((member) => member.id === panel.id)
+    : undefined;
 
   return (
     <div className="mt-6 space-y-4">
@@ -103,6 +147,9 @@ export function MembersList({ tenantSlug }: { tenantSlug: string }) {
                 <th scope="col" className="px-5 py-3 font-medium">
                   Account status
                 </th>
+                <th scope="col" className="w-14 px-2 py-3 text-center font-medium">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -124,40 +171,129 @@ export function MembersList({ tenantSlug }: { tenantSlug: string }) {
                       {member.status === "ACTIVE" ? "Active" : "Inactive"}
                     </AppBadge>
                   </td>
+                  <td className="w-14 px-2 py-4 text-center align-top">
+                    <AppDropdown
+                      label=""
+                      ariaLabel={`Actions for ${member.name}`}
+                      disabled={saving}
+                      items={[
+                        {
+                          label: "View Details",
+                          onSelect: () => {
+                            setRoleError(null);
+                            setPanel({ id: member.id, mode: "details" });
+                          },
+                        },
+                        {
+                          label: "Update Role",
+                          disabled: !canEditRoles || member.id === currentUserId,
+                          title: !canEditRoles
+                            ? "Only organization admins can update roles."
+                            : member.id === currentUserId
+                              ? "You cannot change your own role."
+                              : undefined,
+                          onSelect: () => {
+                            setRole(member.role);
+                            setRoleError(null);
+                            setPanel({ id: member.id, mode: "role" });
+                          },
+                        },
+                      ]}
+                    />
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-      {(result.totalPages > 1 || result.page > 1) && (
-        <nav
-          aria-label="Member pages"
-          className="flex flex-wrap items-center justify-between gap-3 text-sm"
-        >
-          <span className="text-zinc-500">
-            Page {result.page} of {result.totalPages} · {result.total} members
-          </span>
-          <div className="flex gap-2">
-            <AppButton
-              variant="secondary"
-              size="sm"
-              disabled={result.page <= 1}
-              onClick={() => changePage(result.page - 1)}
+      <AppDialog
+        open={Boolean(selectedMember)}
+        onOpenChange={(open) => {
+          if (!open) setPanel(null);
+        }}
+        title={selectedMember
+          ? panel?.mode === "details"
+            ? selectedMember.name
+            : `Update ${selectedMember.name}'s role`
+          : "Member"}
+        description={panel?.mode === "role"
+          ? "Choose the member's new role, then save your change."
+          : undefined}
+        dismissible={!saving}
+      >
+        {selectedMember && panel?.mode === "details" && (
+          <dl className="grid gap-4 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-zinc-500">Email</dt>
+              <dd className="mt-1 break-all font-medium">{selectedMember.email}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Role</dt>
+              <dd className="mt-1 font-medium">{selectedMember.role === "ADMIN" ? "Admin" : "Member"}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Account status</dt>
+              <dd className="mt-1 font-medium">{selectedMember.status === "ACTIVE" ? "Active" : "Inactive"}</dd>
+            </div>
+          </dl>
+        )}
+        {selectedMember && panel?.mode === "role" && (
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveRole(selectedMember.id);
+            }}
+          >
+            <AppSelect
+              label="Role"
+              value={role}
+              onChange={(event) => setRole(event.target.value as TenantRole)}
+              disabled={saving}
+              autoFocus
             >
-              Previous
-            </AppButton>
-            <AppButton
-              variant="secondary"
-              size="sm"
-              disabled={result.page >= result.totalPages}
-              onClick={() => changePage(result.page + 1)}
-            >
-              Next
-            </AppButton>
-          </div>
-        </nav>
-      )}
+              <option value="ADMIN">Admin</option>
+              <option value="MEMBER">Member</option>
+            </AppSelect>
+            {roleError && (
+              <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+                {roleError}
+              </p>
+            )}
+            <div className="flex flex-wrap justify-end gap-2">
+              <AppButton
+                variant="secondary"
+                disabled={saving}
+                onClick={() => setPanel(null)}
+              >
+                Cancel
+              </AppButton>
+              <AppButton
+                type="submit"
+                loading={saving}
+                disabled={role === selectedMember.role}
+              >
+                Save role
+              </AppButton>
+            </div>
+          </form>
+        )}
+      </AppDialog>
+      <AppPagination
+        page={result.page}
+        totalPages={result.totalPages}
+        total={result.total}
+        onPageChange={changePage}
+        label="Member pages"
+        itemName="members"
+        disabled={saving}
+      />
+      <AppToaster
+        message={toast?.message ?? null}
+        variant={toast?.variant}
+        onClose={() => setToast(null)}
+      />
     </div>
   );
 }
