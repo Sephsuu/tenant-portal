@@ -24,8 +24,9 @@ async function MembersContent({
     getCurrentUser(),
     searchParams,
   ]);
-  const tenant =
-    user.tenants.find((item) => item.slug === slug) ?? user.tenants[0];
+  const tenant = slug
+    ? user.tenants.find((item) => item.slug === slug)
+    : user.tenants[0];
 
   return (
     <div className="flex flex-1 flex-col bg-zinc-50 dark:bg-zinc-950">
@@ -73,7 +74,9 @@ async function MembersContent({
           />
         ) : (
           <p className="mt-6 text-sm text-zinc-600 dark:text-zinc-400">
-            You do not belong to an organization yet.
+            {slug
+              ? "You cannot access this organization."
+              : "You do not belong to an organization yet."}
           </p>
         )}
       </main>

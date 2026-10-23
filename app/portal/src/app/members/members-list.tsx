@@ -5,12 +5,15 @@ import { AppBadge } from "@/components/AppBadge";
 import { AppButton } from "@/components/AppButton";
 import { AppDialog } from "@/components/AppDialog";
 import { AppDropdown } from "@/components/AppDropdown";
+import { AppInput } from "@/components/AppInput";
 import { AppPagination } from "@/components/AppPagination";
 import { AppSelect } from "@/components/AppSelect";
 import { AppSkeleton } from "@/components/AppSkeleton";
 import { AppToaster } from "@/components/AppToaster";
+import { PAGE_SIZES, usePagination } from "@/hooks/usePagination";
+import { useSearchFilter } from "@/hooks/useSearchFilter";
 import { getMembers, updateMemberRole } from "@/lib/members";
-import type { MembersPage, TenantRole } from "@/types";
+import type { MemberRoleFilter, MembersPage, TenantRole } from "@/types";
 
 export function MembersList({
   tenantSlug,
@@ -23,19 +26,33 @@ export function MembersList({
 }) {
   const [result, setResult] = useState<MembersPage | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
+  const { page, pageSize, setPage, setPageSize, resetPage } = usePagination();
+  const { search, roleFilter, setSearch, setRoleFilter } = useSearchFilter();
   const [attempt, setAttempt] = useState(0);
-  const [panel, setPanel] = useState<{ id: string; mode: "details" | "role" } | null>(null);
+  const [panel, setPanel] = useState<{
+    id: string;
+    mode: "details" | "role";
+  } | null>(null);
   const [role, setRole] = useState<TenantRole>("MEMBER");
   const [saving, setSaving] = useState(false);
   const [roleError, setRoleError] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ message: string; variant: "success" | "error" } | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    variant: "success" | "error";
+  } | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
-    getMembers(tenantSlug, page, controller.signal)
+    getMembers(
+      tenantSlug,
+      { page, pageSize, search, role: roleFilter },
+      controller.signal,
+    )
       .then((data) => {
-        if (!controller.signal.aborted) setResult(data);
+        if (!controller.signal.aborted) {
+          setResult(data);
+          setError(null);
+        }
       })
       .catch((reason: unknown) => {
         if (!controller.signal.aborted) {
@@ -47,13 +64,34 @@ export function MembersList({
         }
       });
     return () => controller.abort();
-  }, [tenantSlug, page, attempt]);
+  }, [tenantSlug, page, pageSize, search, roleFilter, attempt]);
 
-  function changePage(nextPage: number) {
+  function startNewQuery() {
     setResult(null);
     setError(null);
     setPanel(null);
+  }
+
+  function changePage(nextPage: number) {
+    startNewQuery();
     setPage(nextPage);
+  }
+
+  function changePageSize(nextSize: number) {
+    startNewQuery();
+    setPageSize(nextSize);
+  }
+
+  function changeSearch(nextSearch: string) {
+    startNewQuery();
+    resetPage();
+    setSearch(nextSearch);
+  }
+
+  function changeRoleFilter(nextRole: MemberRoleFilter) {
+    startNewQuery();
+    resetPage();
+    setRoleFilter(nextRole);
   }
 
   async function saveRole(userId: string) {
@@ -62,14 +100,24 @@ export function MembersList({
     setRoleError(null);
     try {
       const member = await updateMemberRole(tenantSlug, userId, role);
-      setResult((current) => current && {
-        ...current,
-        members: current.members.map((item) => item.id === member.id ? member : item),
-      });
+      setResult(
+        (current) =>
+          current && {
+            ...current,
+            members: current.members.map((item) =>
+              item.id === member.id ? member : item,
+            ),
+          },
+      );
+      setAttempt((value) => value + 1);
       setPanel(null);
-      setToast({ message: `${member.name}'s role was updated.`, variant: "success" });
+      setToast({
+        message: `${member.name}'s role was updated.`,
+        variant: "success",
+      });
     } catch (reason) {
-      const message = reason instanceof Error ? reason.message : "Could not update role.";
+      const message =
+        reason instanceof Error ? reason.message : "Could not update role.";
       setRoleError(message);
       setToast({ message, variant: "error" });
     } finally {
@@ -77,34 +125,76 @@ export function MembersList({
     }
   }
 
+  const controls = (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_10rem_9rem]">
+      <AppInput
+        type="search"
+        label="Search name or email"
+        placeholder="Search name or email"
+        value={search}
+        maxLength={100}
+        onChange={(event) => changeSearch(event.target.value)}
+      />
+      <AppSelect
+        label="Role"
+        value={roleFilter}
+        onChange={(event) =>
+          changeRoleFilter(event.target.value as MemberRoleFilter)
+        }
+      >
+        <option value="">All roles</option>
+        <option value="ADMIN">Admin</option>
+        <option value="MEMBER">Member</option>
+      </AppSelect>
+      <AppSelect
+        label="Page size"
+        value={pageSize}
+        onChange={(event) => changePageSize(Number(event.target.value))}
+      >
+        {PAGE_SIZES.map((size) => (
+          <option key={size} value={size}>
+            {size}
+          </option>
+        ))}
+      </AppSelect>
+    </div>
+  );
+
   if (error) {
     return (
-      <div
-        role="alert"
-        className="mt-6 rounded-xl border border-red-200 bg-white p-6 dark:border-red-900 dark:bg-zinc-900"
-      >
-        <p className="font-medium">Could not load members</p>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{error}</p>
-        <AppButton
-          onClick={() => {
-            setResult(null);
-            setError(null);
-            setAttempt((value) => value + 1);
-          }}
-          className="mt-4"
+      <div className="mt-6 space-y-4">
+        {controls}
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-white p-6 dark:border-red-900 dark:bg-zinc-900"
         >
-          Try again
-        </AppButton>
+          <p className="font-medium">Could not load members</p>
+          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+            {error}
+          </p>
+          <AppButton
+            onClick={() => {
+              startNewQuery();
+              setAttempt((value) => value + 1);
+            }}
+            className="mt-4"
+          >
+            Try again
+          </AppButton>
+        </div>
       </div>
     );
   }
 
   if (result === null) {
     return (
-      <div role="status" className="mt-6 space-y-3">
-        <span className="sr-only">Loading members…</span>
-        <AppSkeleton variant="block" height="3rem" />
-        <AppSkeleton variant="block" height="12rem" />
+      <div className="mt-6 space-y-4">
+        {controls}
+        <div role="status" className="space-y-3">
+          <span className="sr-only">Loading members…</span>
+          <AppSkeleton variant="block" height="3rem" />
+          <AppSkeleton variant="block" height="12rem" />
+        </div>
       </div>
     );
   }
@@ -115,17 +205,24 @@ export function MembersList({
 
   return (
     <div className="mt-6 space-y-4">
+      {controls}
       <p className="text-sm text-zinc-500">
         {result.total} members · {result.pageSize} per page
       </p>
       {result.members.length === 0 ? (
         <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
           <p className="font-medium">
-            {result.total === 0 ? "No members yet" : "No members on this page"}
+            {result.total === 0
+              ? search.trim() || roleFilter
+                ? "No matching members"
+                : "No members yet"
+              : "No members on this page"}
           </p>
           <p className="mt-1 text-sm text-zinc-500">
             {result.total === 0
-              ? "This organization has no members to show."
+              ? search.trim() || roleFilter
+                ? "Try another search or role."
+                : "This organization has no members to show."
               : "Go to an earlier page to see members."}
           </p>
         </div>
@@ -147,7 +244,10 @@ export function MembersList({
                 <th scope="col" className="px-5 py-3 font-medium">
                   Account status
                 </th>
-                <th scope="col" className="w-14 px-2 py-3 text-center font-medium">
+                <th
+                  scope="col"
+                  className="w-14 px-2 py-3 text-center font-medium"
+                >
                   Actions
                 </th>
               </tr>
@@ -186,7 +286,8 @@ export function MembersList({
                         },
                         {
                           label: "Update Role",
-                          disabled: !canEditRoles || member.id === currentUserId,
+                          disabled:
+                            !canEditRoles || member.id === currentUserId,
                           title: !canEditRoles
                             ? "Only organization admins can update roles."
                             : member.id === currentUserId
@@ -212,29 +313,39 @@ export function MembersList({
         onOpenChange={(open) => {
           if (!open) setPanel(null);
         }}
-        title={selectedMember
-          ? panel?.mode === "details"
-            ? selectedMember.name
-            : `Update ${selectedMember.name}'s role`
-          : "Member"}
-        description={panel?.mode === "role"
-          ? "Choose the member's new role, then save your change."
-          : undefined}
+        title={
+          selectedMember
+            ? panel?.mode === "details"
+              ? selectedMember.name
+              : `Update ${selectedMember.name}'s role`
+            : "Member"
+        }
+        description={
+          panel?.mode === "role"
+            ? "Choose the member's new role, then save your change."
+            : undefined
+        }
         dismissible={!saving}
       >
         {selectedMember && panel?.mode === "details" && (
           <dl className="grid gap-4 text-sm sm:grid-cols-2">
             <div>
               <dt className="text-zinc-500">Email</dt>
-              <dd className="mt-1 break-all font-medium">{selectedMember.email}</dd>
+              <dd className="mt-1 break-all font-medium">
+                {selectedMember.email}
+              </dd>
             </div>
             <div>
               <dt className="text-zinc-500">Role</dt>
-              <dd className="mt-1 font-medium">{selectedMember.role === "ADMIN" ? "Admin" : "Member"}</dd>
+              <dd className="mt-1 font-medium">
+                {selectedMember.role === "ADMIN" ? "Admin" : "Member"}
+              </dd>
             </div>
             <div>
               <dt className="text-zinc-500">Account status</dt>
-              <dd className="mt-1 font-medium">{selectedMember.status === "ACTIVE" ? "Active" : "Inactive"}</dd>
+              <dd className="mt-1 font-medium">
+                {selectedMember.status === "ACTIVE" ? "Active" : "Inactive"}
+              </dd>
             </div>
           </dl>
         )}
@@ -257,7 +368,10 @@ export function MembersList({
               <option value="MEMBER">Member</option>
             </AppSelect>
             {roleError && (
-              <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+              <p
+                role="alert"
+                className="text-sm text-red-600 dark:text-red-400"
+              >
                 {roleError}
               </p>
             )}

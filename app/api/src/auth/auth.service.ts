@@ -15,20 +15,13 @@ export class AuthService {
   async login({ username, password }: LoginDto) {
     const user = await this.prisma.user.findUnique({
       where: { username },
-      include: { tenants: { select: { tenantId: true, role: true } } },
+      select: { id: true, passwordHash: true },
     });
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
       throw new UnauthorizedException('Invalid username or password');
     }
 
-    const payload: JwtPayload = {
-      sub: user.id,
-      username: user.username,
-      tenants: user.tenants.map(({ tenantId, role }) => ({
-        id: tenantId,
-        role,
-      })),
-    };
+    const payload: JwtPayload = { sub: user.id };
     return { accessToken: await this.jwt.signAsync(payload) };
   }
 

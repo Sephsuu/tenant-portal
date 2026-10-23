@@ -12,14 +12,59 @@ import { PrismaService } from '../prisma/prisma.service.js';
 export class MembersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(tenantId: string, userId: string, page = 1) {
-    const pageSize = 25;
+  async list(
+    tenantId: string,
+    userId: string,
+    page = 1,
+    filters: {
+      pageSize?: number;
+      search?: string;
+      role?: string;
+    } = {},
+  ) {
+    const pageSize = filters.pageSize ?? 25;
     if (!Number.isSafeInteger(page) || page < 1) {
       throw new BadRequestException('Page must be a positive integer');
+    }
+    if (![10, 20, 25, 30, 40, 50, 100].includes(pageSize)) {
+      throw new BadRequestException(
+        'Page size must be 10, 20, 30, 40, 50, or 100',
+      );
+    }
+    if (
+      filters.role &&
+      filters.role !== TenantRole.ADMIN &&
+      filters.role !== TenantRole.MEMBER
+    ) {
+      throw new BadRequestException('Role must be ADMIN or MEMBER');
+    }
+    if (
+      filters.search !== undefined &&
+      (typeof filters.search !== 'string' || filters.search.length > 100)
+    ) {
+      throw new BadRequestException('Search must be at most 100 characters');
     }
     if ((page - 1) * pageSize > 2_147_483_647) {
       throw new BadRequestException('Page is out of range');
     }
+
+    const search = filters.search?.trim();
+    const role =
+      filters.role === TenantRole.ADMIN
+        ? TenantRole.ADMIN
+        : filters.role === TenantRole.MEMBER
+          ? TenantRole.MEMBER
+          : undefined;
+    const where: Prisma.TenantUserWhereInput = {
+      tenantId,
+      ...(role && { role }),
+      ...(search && {
+        OR: [
+          { user: { name: { contains: search, mode: 'insensitive' } } },
+          { user: { email: { contains: search, mode: 'insensitive' } } },
+        ],
+      }),
+    };
 
     return this.prisma.$transaction(
       async (db) => {
@@ -33,9 +78,9 @@ export class MembersService {
           );
         }
 
-        const total = await db.tenantUser.count({ where: { tenantId } });
+        const total = await db.tenantUser.count({ where });
         const rows = await db.tenantUser.findMany({
-          where: { tenantId },
+          where,
           select: {
             role: true,
             user: {

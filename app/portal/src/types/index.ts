@@ -1,5 +1,13 @@
 export type TenantRole = "ADMIN" | "MEMBER";
 export type AccountStatus = "ACTIVE" | "INACTIVE";
+export type MemberRoleFilter = TenantRole | "";
+
+export interface MembersQuery {
+  page: number;
+  pageSize: number;
+  search: string;
+  role: MemberRoleFilter;
+}
 
 export interface Tenant {
   id: string;

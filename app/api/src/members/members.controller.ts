@@ -29,8 +29,15 @@ export class MembersController {
     @CurrentTenant() tenantId: string,
     @Req() request: AuthenticatedRequest,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('pageSize', new DefaultValuePipe(25), ParseIntPipe) pageSize: number,
+    @Query('search') search?: string,
+    @Query('role') role?: string,
   ) {
-    const data = await this.members.list(tenantId, request.user.sub, page);
+    const data = await this.members.list(tenantId, request.user.sub, page, {
+      pageSize,
+      search,
+      role,
+    });
     return { success: true, message: 'Members loaded', error: null, data };
   }
 

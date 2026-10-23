@@ -100,6 +100,55 @@ describe('MembersService.list', () => {
     );
   });
 
+  it('applies the same tenant, search, and role filters to count and page rows', async () => {
+    prisma.tenantUser.findUnique.mockResolvedValue({ userId });
+    prisma.tenantUser.count.mockResolvedValue(21);
+    prisma.tenantUser.findMany.mockResolvedValue([]);
+
+    await expect(
+      service.list(tenantId, userId, 2, {
+        pageSize: 20,
+        search: '  ALICE  ',
+        role: TenantRole.ADMIN,
+      }),
+    ).resolves.toMatchObject({
+      page: 2,
+      pageSize: 20,
+      total: 21,
+      totalPages: 2,
+    });
+
+    const where = {
+      tenantId,
+      role: TenantRole.ADMIN,
+      OR: [
+        { user: { name: { contains: 'ALICE', mode: 'insensitive' } } },
+        { user: { email: { contains: 'ALICE', mode: 'insensitive' } } },
+      ],
+    };
+    expect(prisma.tenantUser.count.mock.calls[0][0]).toEqual({ where });
+    expect(prisma.tenantUser.findMany.mock.calls[0][0]).toMatchObject({
+      where,
+      skip: 20,
+      take: 20,
+    });
+  });
+
+  it.each([
+    [{ pageSize: 0 }, 'Page size'],
+    [{ pageSize: 101 }, 'Page size'],
+    [{ role: 'OWNER' }, 'Role'],
+    [{ search: 'x'.repeat(101) }, 'Search'],
+  ])(
+    'rejects invalid list filters before querying',
+    async (filters, message) => {
+      await expect(service.list(tenantId, userId, 1, filters)).rejects.toThrow(
+        message,
+      );
+      expect(prisma.$transaction.mock.calls).toHaveLength(0);
+    },
+  );
+
   it('rejects nonmembers before reading any tenant data', async () => {
     prisma.tenantUser.findUnique.mockResolvedValue(null);
     await expect(service.list(tenantId, userId)).rejects.toThrow(
@@ -256,7 +305,10 @@ describe('MembersService.updateRole', () => {
 });
 
 describe('UpdateMemberRoleDto', () => {
-  const pipe = new ValidationPipe({ whitelist: true });
+  const pipe = new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+  });
   const metadata = { type: 'body' as const, metatype: UpdateMemberRoleDto };
 
   it.each([TenantRole.ADMIN, TenantRole.MEMBER])(
@@ -276,6 +328,12 @@ describe('UpdateMemberRoleDto', () => {
       );
     },
   );
+
+  it('rejects extra role fields instead of applying a partial request', async () => {
+    await expect(
+      pipe.transform({ role: TenantRole.ADMIN, tenantId }, metadata),
+    ).rejects.toThrow(BadRequestException);
+  });
 });
 
 describe('MembersController.updateRole', () => {
@@ -285,7 +343,7 @@ describe('MembersController.updateRole', () => {
     const members = { updateRole } as unknown as MembersService;
     const controller = new MembersController(members);
     const request = {
-      user: { sub: adminId, tenants: [] },
+      user: { sub: adminId },
     } as unknown as AuthenticatedRequest;
 
     await expect(
@@ -304,6 +362,37 @@ describe('MembersController.updateRole', () => {
     expect(updateRole.mock.calls).toEqual([
       [tenantId, userId, TenantRole.MEMBER, adminId],
     ]);
+  });
+});
+
+describe('MembersController.list', () => {
+  it('returns pagination metadata and forwards the authenticated user and filters', async () => {
+    const data = {
+      members: [],
+      page: 2,
+      pageSize: 20,
+      total: 0,
+      totalPages: 0,
+    };
+    const list = vi.fn().mockResolvedValue(data);
+    const controller = new MembersController({
+      list,
+    } as unknown as MembersService);
+    const request = { user: { sub: adminId } } as AuthenticatedRequest;
+
+    await expect(
+      controller.list(tenantId, request, 2, 20, 'alice', TenantRole.ADMIN),
+    ).resolves.toEqual({
+      success: true,
+      message: 'Members loaded',
+      error: null,
+      data,
+    });
+    expect(list).toHaveBeenCalledWith(tenantId, adminId, 2, {
+      pageSize: 20,
+      search: 'alice',
+      role: TenantRole.ADMIN,
+    });
   });
 });
 

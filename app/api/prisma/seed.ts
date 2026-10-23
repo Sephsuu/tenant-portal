@@ -93,6 +93,17 @@ const users: {
     name: 'Judy Johnson',
     memberships: [{ tenant: 'hooli', role: MEMBER }],
   },
+  // Alice/Bob and Alice/Carol already bring Acme/Globex to two members each.
+  ...(['acme', 'globex'] as const).flatMap((tenant) =>
+    Array.from({ length: 48 }, (_, index) => {
+      const number = String(index + 1).padStart(2, '0');
+      return {
+        username: `${tenant}_member_${number}`,
+        name: `${tenant === 'acme' ? 'Acme' : 'Globex'} Member ${number}`,
+        memberships: [{ tenant, role: index % 10 === 0 ? ADMIN : MEMBER }],
+      };
+    }),
+  ),
 ];
 
 async function main() {

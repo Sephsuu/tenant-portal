@@ -11,6 +11,8 @@ Both apps live in one pnpm workspace and share a single `.env` at the repo root.
 
 > **Doing the assessment?** Start with [TASKS.md](TASKS.md). It explains how to fork this repo, what to build and how to submit.
 
+The implementation and remaining checks are summarized in [SUBMISSION.md](SUBMISSION.md).
+
 ## Prerequisites
 
 - Node.js 20.19 or newer
@@ -59,7 +61,9 @@ Every seeded user has the password **`123456`**. Sign in with the username, not 
 
 Use `alice`, `bob` or `carol` to try the tenant switcher. The dashboard's Admin panel only shows in tenants where you're an Admin. The dashboard numbers are static sample data.
 
-Running `pnpm db:seed` again is safe. It updates the existing records instead of creating duplicates.
+The seeder also adds `acme_member_01` through `acme_member_48` and `globex_member_01` through `globex_member_48`. Each belongs only to its named organization. A fresh database has **50 members in Acme** and **50 in Globex**, including the existing test accounts. These demo accounts use the same password and include both Admin and Member roles.
+
+Running `pnpm db:seed` again is safe. It updates the existing seeded records instead of creating duplicates. Existing members that were added outside the seeder are retained, so an existing database may show more than 50 members.
 
 ## Scripts
 
@@ -102,8 +106,8 @@ All variables live in the root `.env`. `.env.example` lists every one of them.
 
 ### Member management
 
-- The portal's `/members?tenant=acme` page lists the selected organization's members with name, email, role, and account status. It shows loading, error, and empty states. Lists are paginated at 25 members per page.
-- `GET /members?page=1` returns `{ success, message, error, data }`, where `data` includes `members`, `page`, `pageSize`, `total`, and `totalPages`.
+- The portal's `/members?tenant=acme` page lists the selected organization's members with name, email, role, and account status. It shows loading, error, and empty states. The page has a name/email search, role filter, and page size choices of 10, 20, 30, 40, 50, and 100 (default 20).
+- `GET /members?page=1&pageSize=20` accepts optional `search` (name or email) and `role` (`ADMIN` or `MEMBER`). It returns `{ success, message, error, data }`, where `data` includes `members`, `page`, `pageSize`, `total`, and `totalPages`. Direct API calls without `pageSize` still default to 25.
 - `PATCH /members/:userId` accepts `{ "role": "ADMIN" }` or `{ "role": "MEMBER" }`. Only an administrator of the selected organization can update a role. The API checks current database membership, prevents self-demotion, and returns the updated member.
 - Both API routes require a bearer token and `x-tenant-id`. The API validates tenant access in PostgreSQL; the header alone does not grant access.
 - On the members page, each row has an ellipsis menu with View Details and Update Role. Both options open a dialog; admins can update another member's role there. The page shows the new role and a toast after success, or an error when the update fails. The portal sends the change through its own route handler, which reads the httpOnly session cookie and calls the API.
@@ -141,6 +145,7 @@ The schema is in `app/api/prisma/schema.prisma`, the migrations are in `app/api/
             │   ├── members/    # member list page
             │   └── api/members/ # route to the NestJS API
             ├── components/     # reusable UI components
+            ├── hooks/          # member pagination and search/filter state
             ├── lib/            # API client, session cookie, sample data
             ├── types/          # API response and member interfaces
             └── proxy.ts        # redirects signed-out visitors

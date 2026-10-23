@@ -20,17 +20,17 @@ Run everything from the repo root.
 
 ## Tenant context
 
-The portal sends the active tenant's id in the `x-tenant-id` header (`apiFetch` in `app/portal/src/lib/api.ts`). In deployed environments the API gateway validates that header against the session before a request reaches the API. Controllers take it as-is with the `@CurrentTenant()` decorator from `app/api/src/tenancy`. Don't add membership lookups in controllers or services; that duplicates the gateway's work.
+The portal's route handler resolves the selected tenant slug through `/auth/me` and sends its ID in `x-tenant-id` (`apiFetch` in `app/portal/src/lib/api.ts`). The header selects a tenant; member services verify the caller's current membership in PostgreSQL before reading or changing data.
 
 ## Authorization
 
-Use `isTenantAdmin(user, tenantId)` from `app/api/src/tenancy/tenant-access.ts` for every tenant admin check. Memberships are embedded in the access token at login, so it doesn't need a database query.
+JWTs identify the user by `sub`. For member role changes, check the user's current tenant role in PostgreSQL. Do not authorize from stale role claims or a client-supplied tenant ID.
 
 ## API handlers
 
 - Keep controllers thin and put logic in services.
-- DTOs only need basic type checks (`@IsString()` and similar). Enumerated values such as roles are already constrained by the portal's form controls.
-- Role changes are a single `prisma.tenantUser.update` call. Prisma errors are mapped to HTTP responses by the global exception filter, so services don't need to catch them.
+- Validate enum values on the API; form controls are not a security boundary. The global validation pipe rejects unknown body fields.
+- Check the actor's current admin membership and update only the selected tenant/member pair in a transaction. Map expected Prisma errors to useful HTTP responses.
 
 ## Testing
 
@@ -40,9 +40,8 @@ Use `isTenantAdmin(user, tenantId)` from `app/api/src/tenancy/tenant-access.ts` 
 
 ## Portal data fetching
 
-- Server-side data loading lives in `app/portal/src/lib`. Pages call those functions inside a `<Suspense>` boundary.
-- Wrap API reads in a `'use cache'` function and pass the session token in as an argument, so switching tenants stays instant. See `getMembers` in `app/portal/src/lib/members.ts`.
-- Mutations are Server Actions that call `apiFetch`.
+- The members page calls its own Next.js route handler through `app/portal/src/lib/members.ts`. The handler reads the httpOnly session cookie, resolves tenant access through `/auth/me`, and forwards the request to NestJS.
+- Keep member reads uncached so role updates appear promptly. Mutations also use a portal route handler and are authorized again by NestJS.
 
 ## Style
 

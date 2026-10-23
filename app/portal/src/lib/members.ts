@@ -1,14 +1,27 @@
-import type { ApiResponse, Member, MembersPage, TenantRole } from "@/types";
+import type {
+  ApiResponse,
+  Member,
+  MembersPage,
+  MembersQuery,
+  TenantRole,
+} from "@/types";
 
 export async function getMembers(
   tenantSlug: string,
-  page: number,
+  query: MembersQuery,
   signal?: AbortSignal,
 ): Promise<MembersPage> {
-  const response = await fetch(
-    `/api/members?tenant=${encodeURIComponent(tenantSlug)}&page=${page}`,
-    { cache: "no-store", signal },
-  );
+  const params = new URLSearchParams({
+    tenant: tenantSlug,
+    page: String(query.page),
+    pageSize: String(query.pageSize),
+  });
+  if (query.search.trim()) params.set("search", query.search.trim());
+  if (query.role) params.set("role", query.role);
+  const response = await fetch(`/api/members?${params}`, {
+    cache: "no-store",
+    signal,
+  });
   const result = (await response
     .json()
     .catch(() => null)) as ApiResponse<MembersPage> | null;
@@ -38,9 +51,13 @@ export async function updateMemberRole(
       body: JSON.stringify({ role }),
     },
   );
-  const result = (await response.json().catch(() => null)) as ApiResponse<Member> | null;
+  const result = (await response
+    .json()
+    .catch(() => null)) as ApiResponse<Member> | null;
   if (!response.ok || !result?.success || !result.data) {
-    throw new Error(result?.message || `Could not update role (HTTP ${response.status}).`);
+    throw new Error(
+      result?.message || `Could not update role (HTTP ${response.status}).`,
+    );
   }
   return result.data;
 }

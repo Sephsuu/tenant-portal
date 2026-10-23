@@ -22,6 +22,9 @@ export async function GET(request: NextRequest) {
 
   const slug = request.nextUrl.searchParams.get("tenant");
   const page = request.nextUrl.searchParams.get("page") ?? "1";
+  const pageSize = request.nextUrl.searchParams.get("pageSize") ?? "25";
+  const search = request.nextUrl.searchParams.get("search");
+  const role = request.nextUrl.searchParams.get("role");
   if (!slug) {
     return failure(400, "Choose an organization.", "BAD_REQUEST");
   }
@@ -52,14 +55,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const membersResponse = await apiFetch(
-      `/members?page=${encodeURIComponent(page)}`,
-      {
-        token,
-        tenantId: tenant.id,
-        cache: "no-store",
-      },
-    );
+    const query = new URLSearchParams({ page, pageSize });
+    if (search !== null) query.set("search", search);
+    if (role !== null) query.set("role", role);
+    const membersResponse = await apiFetch(`/members?${query}`, {
+      token,
+      tenantId: tenant.id,
+      cache: "no-store",
+    });
     return new Response(membersResponse.body, {
       status: membersResponse.status,
       headers: {
