@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
-import { apiFetch, type CurrentUser } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { getSessionToken } from "@/lib/session";
+import type { CurrentUser } from "@/types";
 
 function failure(status: number, message: string, error: string) {
   return Response.json(
@@ -20,6 +21,7 @@ export async function GET(request: NextRequest) {
   }
 
   const slug = request.nextUrl.searchParams.get("tenant");
+  const page = request.nextUrl.searchParams.get("page") ?? "1";
   if (!slug) {
     return failure(400, "Choose an organization.", "BAD_REQUEST");
   }
@@ -50,11 +52,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const membersResponse = await apiFetch("/members", {
-      token,
-      tenantId: tenant.id,
-      cache: "no-store",
-    });
+    const membersResponse = await apiFetch(
+      `/members?page=${encodeURIComponent(page)}`,
+      {
+        token,
+        tenantId: tenant.id,
+        cache: "no-store",
+      },
+    );
     return new Response(membersResponse.body, {
       status: membersResponse.status,
       headers: {

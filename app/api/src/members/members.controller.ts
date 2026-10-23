@@ -1,9 +1,12 @@
 import {
   Body,
   Controller,
+  DefaultValuePipe,
   Get,
   Param,
+  ParseIntPipe,
   Patch,
+  Query,
   Req,
   UseFilters,
   UseGuards,
@@ -24,17 +27,10 @@ export class MembersController {
   async list(
     @CurrentTenant() tenantId: string,
     @Req() request: AuthenticatedRequest,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
   ) {
-    const data = await this.members.list(
-      tenantId, 
-      request.user.sub
-    );
-
-    return { 
-      success: true, 
-      message: 'Members loaded', 
-      error: null, data 
-    };
+    const data = await this.members.list(tenantId, request.user.sub, page);
+    return { success: true, message: 'Members loaded', error: null, data };
   }
 
   @Patch(':userId')
