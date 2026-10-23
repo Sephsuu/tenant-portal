@@ -1,128 +1,88 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { AppBadge } from "@/components/AppBadge";
 import { AppButton } from "@/components/AppButton";
-import { AppDialog } from "@/components/AppDialog";
 import { AppDropdown } from "@/components/AppDropdown";
 import { AppInput } from "@/components/AppInput";
 import { AppPagination } from "@/components/AppPagination";
 import { AppSelect } from "@/components/AppSelect";
 import { AppSkeleton } from "@/components/AppSkeleton";
 import { AppToaster } from "@/components/AppToaster";
-import { PAGE_SIZES, usePagination } from "@/hooks/usePagination";
-import { useSearchFilter } from "@/hooks/useSearchFilter";
-import { getMembers, updateMemberRole } from "@/lib/members";
-import type { MemberRoleFilter, MembersPage, TenantRole } from "@/types";
+import type { MemberRoleFilter, MembersPage, MembersQuery } from "@/types";
+import { MemberDialog } from "./member-dialog";
 
 export function MembersList({
   tenantSlug,
   currentUserId,
   canEditRoles,
+  query,
+  result,
+  error,
 }: {
   tenantSlug: string;
   currentUserId: string;
   canEditRoles: boolean;
+  query: MembersQuery;
+  result: MembersPage | null;
+  error: string | null;
 }) {
-  const [result, setResult] = useState<MembersPage | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const { page, pageSize, setPage, setPageSize, resetPage } = usePagination();
-  const { search, roleFilter, setSearch, setRoleFilter } = useSearchFilter();
-  const [attempt, setAttempt] = useState(0);
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [searchState, setSearchState] = useState({
+    draft: query.search,
+    urlSearch: query.search,
+  });
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [panel, setPanel] = useState<{
     id: string;
     mode: "details" | "role";
   } | null>(null);
-  const [role, setRole] = useState<TenantRole>("MEMBER");
-  const [saving, setSaving] = useState(false);
-  const [roleError, setRoleError] = useState<string | null>(null);
   const [toast, setToast] = useState<{
     message: string;
     variant: "success" | "error";
   } | null>(null);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    getMembers(
-      tenantSlug,
-      { page, pageSize, search, role: roleFilter },
-      controller.signal,
-    )
-      .then((data) => {
-        if (!controller.signal.aborted) {
-          setResult(data);
-          setError(null);
-        }
-      })
-      .catch((reason: unknown) => {
-        if (!controller.signal.aborted) {
-          setError(
-            reason instanceof Error
-              ? reason.message
-              : "Could not load members.",
-          );
-        }
-      });
-    return () => controller.abort();
-  }, [tenantSlug, page, pageSize, search, roleFilter, attempt]);
+  if (searchState.urlSearch !== query.search) {
+    setSearchState({
+      urlSearch: query.search,
+      draft:
+        searchState.draft === searchState.urlSearch ||
+        searchState.draft === query.search
+          ? query.search
+          : searchState.draft,
+    });
+  }
+  const search = searchState.draft;
+  useEffect(() => () => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+  }, []);
 
-  function startNewQuery() {
-    setResult(null);
-    setError(null);
+  function navigate(next: Partial<MembersQuery>, replace = false) {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
     setPanel(null);
-  }
-
-  function changePage(nextPage: number) {
-    startNewQuery();
-    setPage(nextPage);
-  }
-
-  function changePageSize(nextSize: number) {
-    startNewQuery();
-    setPageSize(nextSize);
+    const selected = { ...query, search, ...next };
+    const params = new URLSearchParams({
+      tenant: tenantSlug,
+      page: String(selected.page),
+      pageSize: String(selected.pageSize),
+    });
+    if (selected.search.trim()) params.set("search", selected.search.trim());
+    if (selected.role) params.set("role", selected.role);
+    startTransition(() => {
+      if (replace) router.replace(`/members?${params}`);
+      else router.push(`/members?${params}`);
+    });
   }
 
   function changeSearch(nextSearch: string) {
-    startNewQuery();
-    resetPage();
-    setSearch(nextSearch);
-  }
-
-  function changeRoleFilter(nextRole: MemberRoleFilter) {
-    startNewQuery();
-    resetPage();
-    setRoleFilter(nextRole);
-  }
-
-  async function saveRole(userId: string) {
-    if (saving) return;
-    setSaving(true);
-    setRoleError(null);
-    try {
-      const member = await updateMemberRole(tenantSlug, userId, role);
-      setResult(
-        (current) =>
-          current && {
-            ...current,
-            members: current.members.map((item) =>
-              item.id === member.id ? member : item,
-            ),
-          },
-      );
-      setAttempt((value) => value + 1);
-      setPanel(null);
-      setToast({
-        message: `${member.name}'s role was updated.`,
-        variant: "success",
-      });
-    } catch (reason) {
-      const message =
-        reason instanceof Error ? reason.message : "Could not update role.";
-      setRoleError(message);
-      setToast({ message, variant: "error" });
-    } finally {
-      setSaving(false);
-    }
+    setSearchState((current) => ({ ...current, draft: nextSearch }));
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(
+      () => navigate({ search: nextSearch, page: 1 }, true),
+      300,
+    );
   }
 
   const controls = (
@@ -137,9 +97,9 @@ export function MembersList({
       />
       <AppSelect
         label="Role"
-        value={roleFilter}
+        value={query.role}
         onChange={(event) =>
-          changeRoleFilter(event.target.value as MemberRoleFilter)
+          navigate({ role: event.target.value as MemberRoleFilter, page: 1 })
         }
       >
         <option value="">All roles</option>
@@ -148,10 +108,10 @@ export function MembersList({
       </AppSelect>
       <AppSelect
         label="Page size"
-        value={pageSize}
-        onChange={(event) => changePageSize(Number(event.target.value))}
+        value={query.pageSize}
+        onChange={(event) => navigate({ pageSize: Number(event.target.value), page: 1 })}
       >
-        {PAGE_SIZES.map((size) => (
+        {[10, 20, 30, 40, 50, 100].map((size) => (
           <option key={size} value={size}>
             {size}
           </option>
@@ -160,7 +120,7 @@ export function MembersList({
     </div>
   );
 
-  if (error) {
+  if (error && !pending) {
     return (
       <div className="mt-6 space-y-4">
         {controls}
@@ -174,9 +134,9 @@ export function MembersList({
           </p>
           <AppButton
             onClick={() => {
-              startNewQuery();
-              setAttempt((value) => value + 1);
+              startTransition(() => router.refresh());
             }}
+            loading={pending}
             className="mt-4"
           >
             Try again
@@ -186,7 +146,7 @@ export function MembersList({
     );
   }
 
-  if (result === null) {
+  if (result === null || pending) {
     return (
       <div className="mt-6 space-y-4">
         {controls}
@@ -213,14 +173,14 @@ export function MembersList({
         <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
           <p className="font-medium">
             {result.total === 0
-              ? search.trim() || roleFilter
+              ? search.trim() || query.role
                 ? "No matching members"
                 : "No members yet"
               : "No members on this page"}
           </p>
           <p className="mt-1 text-sm text-zinc-500">
             {result.total === 0
-              ? search.trim() || roleFilter
+              ? search.trim() || query.role
                 ? "Try another search or role."
                 : "This organization has no members to show."
               : "Go to an earlier page to see members."}
@@ -275,12 +235,11 @@ export function MembersList({
                     <AppDropdown
                       label=""
                       ariaLabel={`Actions for ${member.name}`}
-                      disabled={saving}
+                      disabled={pending}
                       items={[
                         {
                           label: "View Details",
                           onSelect: () => {
-                            setRoleError(null);
                             setPanel({ id: member.id, mode: "details" });
                           },
                         },
@@ -294,8 +253,6 @@ export function MembersList({
                               ? "You cannot change your own role."
                               : undefined,
                           onSelect: () => {
-                            setRole(member.role);
-                            setRoleError(null);
                             setPanel({ id: member.id, mode: "role" });
                           },
                         },
@@ -308,100 +265,26 @@ export function MembersList({
           </table>
         </div>
       )}
-      <AppDialog
-        open={Boolean(selectedMember)}
-        onOpenChange={(open) => {
-          if (!open) setPanel(null);
+      <MemberDialog
+        key={`${panel?.id ?? "closed"}-${panel?.mode ?? "none"}`}
+        member={selectedMember}
+        mode={panel?.mode}
+        tenantSlug={tenantSlug}
+        onClose={() => setPanel(null)}
+        onSuccess={(message) => {
+          setPanel(null);
+          setToast({ message, variant: "success" });
+          startTransition(() => router.refresh());
         }}
-        title={
-          selectedMember
-            ? panel?.mode === "details"
-              ? selectedMember.name
-              : `Update ${selectedMember.name}'s role`
-            : "Member"
-        }
-        description={
-          panel?.mode === "role"
-            ? "Choose the member's new role, then save your change."
-            : undefined
-        }
-        dismissible={!saving}
-      >
-        {selectedMember && panel?.mode === "details" && (
-          <dl className="grid gap-4 text-sm sm:grid-cols-2">
-            <div>
-              <dt className="text-zinc-500">Email</dt>
-              <dd className="mt-1 break-all font-medium">
-                {selectedMember.email}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-zinc-500">Role</dt>
-              <dd className="mt-1 font-medium">
-                {selectedMember.role === "ADMIN" ? "Admin" : "Member"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-zinc-500">Account status</dt>
-              <dd className="mt-1 font-medium">
-                {selectedMember.status === "ACTIVE" ? "Active" : "Inactive"}
-              </dd>
-            </div>
-          </dl>
-        )}
-        {selectedMember && panel?.mode === "role" && (
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void saveRole(selectedMember.id);
-            }}
-          >
-            <AppSelect
-              label="Role"
-              value={role}
-              onChange={(event) => setRole(event.target.value as TenantRole)}
-              disabled={saving}
-              autoFocus
-            >
-              <option value="ADMIN">Admin</option>
-              <option value="MEMBER">Member</option>
-            </AppSelect>
-            {roleError && (
-              <p
-                role="alert"
-                className="text-sm text-red-600 dark:text-red-400"
-              >
-                {roleError}
-              </p>
-            )}
-            <div className="flex flex-wrap justify-end gap-2">
-              <AppButton
-                variant="secondary"
-                disabled={saving}
-                onClick={() => setPanel(null)}
-              >
-                Cancel
-              </AppButton>
-              <AppButton
-                type="submit"
-                loading={saving}
-                disabled={role === selectedMember.role}
-              >
-                Save role
-              </AppButton>
-            </div>
-          </form>
-        )}
-      </AppDialog>
+      />
       <AppPagination
         page={result.page}
         totalPages={result.totalPages}
         total={result.total}
-        onPageChange={changePage}
+        onPageChange={(page) => navigate({ page })}
         label="Member pages"
         itemName="members"
-        disabled={saving}
+        disabled={pending}
       />
       <AppToaster
         message={toast?.message ?? null}

@@ -1,27 +1,31 @@
-import type {
-  ApiResponse,
-  Member,
-  MembersPage,
-  MembersQuery,
-  TenantRole,
-} from "@/types";
+import "server-only";
+import { apiFetch } from "./api";
+import { getSessionToken } from "./session";
+import type { ApiResponse, MembersPage, MembersQuery } from "@/types";
 
 export async function getMembers(
-  tenantSlug: string,
+  tenantId: string,
   query: MembersQuery,
-  signal?: AbortSignal,
 ): Promise<MembersPage> {
+  const token = await getSessionToken();
+  if (!token) throw new Error("Your session has expired. Please sign in again.");
+
   const params = new URLSearchParams({
-    tenant: tenantSlug,
     page: String(query.page),
     pageSize: String(query.pageSize),
   });
   if (query.search.trim()) params.set("search", query.search.trim());
   if (query.role) params.set("role", query.role);
-  const response = await fetch(`/api/members?${params}`, {
-    cache: "no-store",
-    signal,
-  });
+  let response: Response;
+  try {
+    response = await apiFetch(`/members?${params}`, {
+      token,
+      tenantId,
+      cache: "no-store",
+    });
+  } catch {
+    throw new Error("Could not reach the API. Please try again.");
+  }
   const result = (await response
     .json()
     .catch(() => null)) as ApiResponse<MembersPage> | null;
@@ -33,30 +37,6 @@ export async function getMembers(
   if (!result.data || !Array.isArray(result.data.members)) {
     throw new Error(
       "The members API returned an outdated response. Restart the API and try again.",
-    );
-  }
-  return result.data;
-}
-
-export async function updateMemberRole(
-  tenantSlug: string,
-  userId: string,
-  role: TenantRole,
-): Promise<Member> {
-  const response = await fetch(
-    `/api/members/${encodeURIComponent(userId)}?tenant=${encodeURIComponent(tenantSlug)}`,
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role }),
-    },
-  );
-  const result = (await response
-    .json()
-    .catch(() => null)) as ApiResponse<Member> | null;
-  if (!response.ok || !result?.success || !result.data) {
-    throw new Error(
-      result?.message || `Could not update role (HTTP ${response.status}).`,
     );
   }
   return result.data;

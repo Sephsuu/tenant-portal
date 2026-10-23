@@ -6,7 +6,7 @@ import { getSessionToken } from "./session";
 export type { CurrentUser, Tenant, TenantRole } from "@/types";
 
 export const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
+  process.env.BACKEND_API_URL ?? "http://localhost:3000";
 
 /**
  * Calls the API as the signed-in user. Pass `tenantId` for tenant-scoped

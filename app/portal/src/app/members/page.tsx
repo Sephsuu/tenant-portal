@@ -4,6 +4,8 @@ import { Suspense } from "react";
 import { logout } from "../actions";
 import { TenantSwitcher } from "../dashboard/tenant-switcher";
 import { getCurrentUser } from "@/lib/api";
+import { getMembers } from "@/lib/members";
+import type { MembersQuery } from "@/types";
 import { MembersList } from "./members-list";
 import MembersLoading from "./loading";
 
@@ -20,13 +22,36 @@ export default function MembersPage({ searchParams }: PageProps<"/members">) {
 async function MembersContent({
   searchParams,
 }: Pick<PageProps<"/members">, "searchParams">) {
-  const [user, { tenant: slug }] = await Promise.all([
+  const [user, params] = await Promise.all([
     getCurrentUser(),
     searchParams,
   ]);
+  const slug = typeof params.tenant === "string" ? params.tenant : undefined;
   const tenant = slug
     ? user.tenants.find((item) => item.slug === slug)
     : user.tenants[0];
+  const requestedPage = Number(params.page ?? 1);
+  const requestedSize = Number(params.pageSize ?? 20);
+  const query: MembersQuery = {
+    page: Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1,
+    pageSize: [10, 20, 30, 40, 50, 100].includes(requestedSize)
+      ? requestedSize
+      : 20,
+    search: typeof params.search === "string" ? params.search.slice(0, 100) : "",
+    role:
+      params.role === "ADMIN" || params.role === "MEMBER"
+        ? params.role
+        : "",
+  };
+  let members = null;
+  let error: string | null = null;
+  if (tenant) {
+    try {
+      members = await getMembers(tenant.id, query);
+    } catch (reason) {
+      error = reason instanceof Error ? reason.message : "Could not load members.";
+    }
+  }
 
   return (
     <div className="flex flex-1 flex-col bg-zinc-50 dark:bg-zinc-950">
@@ -71,6 +96,9 @@ async function MembersContent({
             tenantSlug={tenant.slug}
             currentUserId={user.id}
             canEditRoles={tenant.role === "ADMIN"}
+            query={query}
+            result={members}
+            error={error}
           />
         ) : (
           <p className="mt-6 text-sm text-zinc-600 dark:text-zinc-400">

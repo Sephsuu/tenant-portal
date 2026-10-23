@@ -3,6 +3,7 @@
 ## Implemented
 
 - A tenant members page shows name, email, role, and account status, with loading, error, and empty states. It supports page sizes, name/email search, and role filtering.
+- The portal fetches members in a Server Component and keeps page, search, and filter state in the URL. Login, logout, and role updates use Server Actions; no Next.js member API proxy routes remain.
 - Admins can change another member's role in a dialog. The page updates after success and shows useful errors after failure. Self-demotion is blocked in both the UI and API.
 - NestJS lists and updates memberships through Prisma. Member responses use `success`, `message`, `error`, and `data`.
 - The API checks current PostgreSQL membership for every member request. Role changes check the actor's current admin role inside a serializable transaction and update only the requested tenant/member pair.
@@ -11,6 +12,7 @@
 ## Decisions and assumptions
 
 - `x-tenant-id` selects an organization but proves no access. The portal resolves the selected slug through `/auth/me`; the NestJS API independently checks current database membership.
+- `BACKEND_API_URL` is read only by the portal server. The session token stays in an httpOnly cookie and is sent to the API from server code.
 - JWTs identify a user by `sub`. Tenant roles are read from PostgreSQL so a role change takes effect without waiting for a token to expire.
 - Account status belongs to a user, while role belongs to a tenant membership. The migration defaults existing users to `ACTIVE`. Editing account status is outside this assessment.
 - The API keeps the earlier default of 25 members per page for callers that omit `pageSize`; the portal defaults to 20. Search and role filtering happen before counting and paging.

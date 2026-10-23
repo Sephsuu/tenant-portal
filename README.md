@@ -96,7 +96,7 @@ All variables live in the root `.env`. `.env.example` lists every one of them.
 | `JWT_SECRET` | API | Secret that signs access tokens |
 | `JWT_EXPIRES_IN` | API | Token lifetime, e.g. `1d` |
 | `PORTAL_PORT` | Portal | Port the portal listens on |
-| `NEXT_PUBLIC_API_URL` | Portal | Base URL of the API |
+| `BACKEND_API_URL` | Portal server | Base URL of the API |
 
 ## How it works
 
@@ -110,7 +110,8 @@ All variables live in the root `.env`. `.env.example` lists every one of them.
 - `GET /members?page=1&pageSize=20` accepts optional `search` (name or email) and `role` (`ADMIN` or `MEMBER`). It returns `{ success, message, error, data }`, where `data` includes `members`, `page`, `pageSize`, `total`, and `totalPages`. Direct API calls without `pageSize` still default to 25.
 - `PATCH /members/:userId` accepts `{ "role": "ADMIN" }` or `{ "role": "MEMBER" }`. Only an administrator of the selected organization can update a role. The API checks current database membership, prevents self-demotion, and returns the updated member.
 - Both API routes require a bearer token and `x-tenant-id`. The API validates tenant access in PostgreSQL; the header alone does not grant access.
-- On the members page, each row has an ellipsis menu with View Details and Update Role. Both options open a dialog; admins can update another member's role there. The page shows the new role and a toast after success, or an error when the update fails. The portal sends the change through its own route handler, which reads the httpOnly session cookie and calls the API.
+- On the members page, each row has an ellipsis menu with View Details and Update Role. Both options open a dialog; admins can update another member's role there. A Server Action reads the httpOnly session cookie and calls the API. The page refreshes and shows a toast after success, or an error when the update fails.
+- The members page fetches its initial data from the API in a Server Component. Page, page size, search, and role filter live in the URL. The browser never receives the API token.
 
 For a database created before account status was added, run `pnpm db:deploy` to add the `users.status` column. Existing users default to `ACTIVE`.
 
@@ -142,10 +143,8 @@ The schema is in `app/api/prisma/schema.prisma`, the migrations are in `app/api/
             ├── app/
             │   ├── login/      # login page and form
             │   ├── dashboard/  # dashboard and tenant switcher
-            │   ├── members/    # member list page
-            │   └── api/members/ # route to the NestJS API
+            │   └── members/    # server-fetched list and role Server Action
             ├── components/     # reusable UI components
-            ├── hooks/          # member pagination and search/filter state
             ├── lib/            # API client, session cookie, sample data
             ├── types/          # API response and member interfaces
             └── proxy.ts        # redirects signed-out visitors
@@ -155,4 +154,4 @@ The schema is in `app/api/prisma/schema.prisma`, the migrations are in `app/api/
 
 - **`EADDRINUSE` on port 3000 or 3001:** another process already uses the port. Find it with `lsof -nP -iTCP:3000 -sTCP:LISTEN`, then stop it or change `API_PORT` / `PORTAL_PORT` in `.env`.
 - **Port 5433 already in use:** change `DB_PORT` in `.env`, and the port inside `DATABASE_URL` to match.
-- **"Can't reach the API" on the login page:** make sure `pnpm api:dev` is running and `NEXT_PUBLIC_API_URL` points to it.
+- **"Can't reach the API" on the login page:** make sure `pnpm api:dev` is running and `BACKEND_API_URL` points to it.

@@ -120,7 +120,7 @@ The API and its database go on **Railway**, and the portal goes on **Vercel**. D
 
 - [ ] Import the GitHub repo into Vercel.
 - [ ] Set **Root Directory** to `app/portal`. Vercel detects Next.js and pnpm and installs from the workspace root.
-- [ ] Add the environment variable `NEXT_PUBLIC_API_URL` = `https://<api-domain>` (no trailing slash). It's built into the app, so redeploy after changing it.
+- [ ] Add the server-side environment variable `BACKEND_API_URL` = `https://<api-domain>` (no trailing slash). Redeploy after changing it.
 - [ ] Deploy, then set `PORTAL_URL` on Railway to the Vercel URL.
 - [ ] Check it: open the Vercel URL, sign in as `alice` / `123456`, switch between Acme and Globex, then sign out.
 
