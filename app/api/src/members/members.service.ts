@@ -1,4 +1,8 @@
-import { Injectable, NotImplementedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotImplementedException,
+} from '@nestjs/common';
 import type { JwtPayload } from '../auth/auth.guard.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -6,9 +10,25 @@ import { PrismaService } from '../prisma/prisma.service.js';
 export class MembersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // TODO: return the tenant's members with name, email, role and account status
-  list(tenantId: string) {
-    throw new NotImplementedException(`Members of ${tenantId}`);
+  async list(tenantId: string, userId: string) {
+    const tenant = await this.prisma.tenant.findFirst({
+      where: { id: tenantId, users: { some: { userId } } },
+      select: {
+        users: {
+          select: {
+            role: true,
+            user: {
+              select: { id: true, name: true, email: true, status: true },
+            },
+          },
+          orderBy: { user: { name: 'asc' } },
+        },
+      },
+    });
+    if (!tenant) {
+      throw new ForbiddenException('You do not belong to this organization');
+    }
+    return tenant.users.map(({ role, user }) => ({ ...user, role }));
   }
 
   // TODO: change a member's role. Only tenant admins may do this (see isTenantAdmin)
