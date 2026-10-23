@@ -1,10 +1,11 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
-  NotImplementedException,
+  NotFoundException,
 } from '@nestjs/common';
-import type { JwtPayload } from '../auth/auth.guard.js';
+import { Prisma, TenantRole } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
@@ -57,15 +58,66 @@ export class MembersService {
     );
   }
 
-  // TODO: change a member's role. Only tenant admins may do this (see isTenantAdmin)
-  updateRole(
+  async updateRole(
     tenantId: string,
     userId: string,
-    role: string,
-    actor: JwtPayload,
+    role: TenantRole,
+    actorId: string,
   ) {
-    throw new NotImplementedException(
-      `Set ${userId} to ${role} in ${tenantId} by ${actor.sub}`,
-    );
+    try {
+      return await this.prisma.$transaction(
+        async (db) => {
+          const actor = await db.tenantUser.findUnique({
+            where: { tenantId_userId: { tenantId, userId: actorId } },
+            select: { role: true },
+          });
+          if (actor?.role !== TenantRole.ADMIN) {
+            throw new ForbiddenException(
+              'Only organization admins can change roles',
+            );
+          }
+          if (actorId === userId && role !== TenantRole.ADMIN) {
+            throw new BadRequestException(
+              'You cannot remove your own admin access',
+            );
+          }
+
+          const target = await db.tenantUser.findUnique({
+            where: { tenantId_userId: { tenantId, userId } },
+            select: { userId: true },
+          });
+          if (!target) {
+            throw new NotFoundException(
+              'Member not found in this organization',
+            );
+          }
+
+          const updated = await db.tenantUser.update({
+            where: { tenantId_userId: { tenantId, userId } },
+            data: { role },
+            select: {
+              role: true,
+              user: {
+                select: { id: true, name: true, email: true, status: true },
+              },
+            },
+          });
+          return { ...updated.user, role: updated.role };
+        },
+        { isolationLevel: 'Serializable' },
+      );
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2025') {
+          throw new NotFoundException('Member not found in this organization');
+        }
+        if (error.code === 'P2034') {
+          throw new ConflictException(
+            'Role changed concurrently. Please retry',
+          );
+        }
+      }
+      throw error;
+    }
   }
 }

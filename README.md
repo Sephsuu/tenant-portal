@@ -100,6 +100,16 @@ All variables live in the root `.env`. `.env.example` lists every one of them.
 - **Dashboard:** the portal's server calls `GET /auth/me` with that token to get the user and their tenants. The selected tenant is kept in the URL (`/dashboard?tenant=acme`).
 - **Route protection:** `app/portal/src/proxy.ts` sends visitors without a session cookie to `/login`. The dashboard also redirects to `/login` when the API rejects the token, for example once it expires.
 
+### Member management
+
+- The portal's `/members?tenant=acme` page lists the selected organization's members with name, email, role, and account status. It shows loading, error, and empty states. Lists are paginated at 25 members per page.
+- `GET /members?page=1` returns `{ success, message, error, data }`, where `data` includes `members`, `page`, `pageSize`, `total`, and `totalPages`.
+- `PATCH /members/:userId` accepts `{ "role": "ADMIN" }` or `{ "role": "MEMBER" }`. Only an administrator of the selected organization can update a role. The API checks current database membership, prevents self-demotion, and returns the updated member.
+- Both API routes require a bearer token and `x-tenant-id`. The API validates tenant access in PostgreSQL; the header alone does not grant access.
+- The portal's role-edit controls are still to do. To exercise the backend route now, use an API client.
+
+For a database created before account status was added, run `pnpm db:deploy` to add the `users.status` column. Existing users default to `ACTIVE`.
+
 ### Data model
 
 ```
@@ -121,13 +131,18 @@ The schema is in `app/api/prisma/schema.prisma`, the migrations are in `app/api/
     │   ├── prisma/         # schema, migrations, seeder
     │   └── src/
     │       ├── auth/       # login, /auth/me, JWT guard
+    │       ├── members/    # tenant member list and role update
     │       └── prisma/     # PrismaService
     └── portal/
         └── src/
             ├── app/
             │   ├── login/      # login page and form
-            │   └── dashboard/  # dashboard and tenant switcher
+            │   ├── dashboard/  # dashboard and tenant switcher
+            │   ├── members/    # member list page
+            │   └── api/members/ # route to the NestJS API
+            ├── components/     # reusable UI components
             ├── lib/            # API client, session cookie, sample data
+            ├── types/          # API response and member interfaces
             └── proxy.ts        # redirects signed-out visitors
 ```
 

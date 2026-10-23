@@ -14,10 +14,19 @@ export class MembersExceptionFilter implements ExceptionFilter {
       exception instanceof HttpException
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
-    const message =
-      exception instanceof HttpException
-        ? exception.message
-        : 'An unexpected error occurred';
+    const response =
+      exception instanceof HttpException ? exception.getResponse() : null;
+    const detail =
+      response && typeof response === 'object' && 'message' in response
+        ? response.message
+        : response;
+    const message = Array.isArray(detail)
+      ? detail.join('; ')
+      : typeof detail === 'string'
+        ? detail
+        : exception instanceof HttpException
+          ? exception.message
+          : 'An unexpected error occurred';
 
     host
       .switchToHttp()

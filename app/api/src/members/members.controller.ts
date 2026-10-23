@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseIntPipe,
+  ParseUUIDPipe,
   Patch,
   Query,
   Req,
@@ -34,12 +35,18 @@ export class MembersController {
   }
 
   @Patch(':userId')
-  updateRole(
+  async updateRole(
     @CurrentTenant() tenantId: string,
-    @Param('userId') userId: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
     @Body() body: UpdateMemberRoleDto,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.members.updateRole(tenantId, userId, body.role, request.user);
+    const data = await this.members.updateRole(
+      tenantId,
+      userId,
+      body.role,
+      request.user.sub,
+    );
+    return { success: true, message: 'Member role updated', error: null, data };
   }
 }
