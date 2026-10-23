@@ -96,7 +96,7 @@ All variables live in the root `.env`. `.env.example` lists every one of them.
 | `JWT_SECRET` | API | Secret that signs access tokens |
 | `JWT_EXPIRES_IN` | API | Token lifetime, e.g. `1d` |
 | `PORTAL_PORT` | Portal | Port the portal listens on |
-| `BACKEND_API_URL` | Portal server | Base URL of the API |
+| `BACKEND_API_URL` | Portal server | Base URL of the API; older `NEXT_PUBLIC_API_URL` settings also work |
 
 ## How it works
 
