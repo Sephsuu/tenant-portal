@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Suspense } from "react";
 import { logout } from "../actions";
 import { getCurrentUser, type Tenant } from "@/lib/api";
@@ -97,6 +98,13 @@ function TenantDashboard({
           Sample data
         </span>
       </div>
+
+      <Link
+        href={`/members?tenant=${encodeURIComponent(tenant.slug)}`}
+        className="inline-flex rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+      >
+        View members
+      </Link>
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {data.stats.map((stat) => (

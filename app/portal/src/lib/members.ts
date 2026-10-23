@@ -1,30 +1,31 @@
-import "server-only";
-import { redirect } from "next/navigation";
-import { apiFetch, type TenantRole } from "./api";
-import { getSessionToken } from "./session";
+import type { TenantRole } from "./api";
 
-// TODO: add the remaining fields the members page needs
 export type Member = {
   id: string;
   name: string;
   email: string;
   role: TenantRole;
+  status: "ACTIVE" | "INACTIVE";
 };
 
-export async function getMembers(tenantId: string): Promise<Member[]> {
-  const token = await getSessionToken();
-  if (!token) {
-    redirect("/login");
+export async function getMembers(
+  tenantSlug: string,
+  signal?: AbortSignal,
+): Promise<Member[]> {
+  const response = await fetch(
+    `/api/members?tenant=${encodeURIComponent(tenantSlug)}`,
+    { cache: "no-store", signal },
+  );
+  const result = (await response.json()) as {
+    success: boolean;
+    message: string;
+    data: Member[] | null;
+  };
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Could not load members.");
   }
-  return fetchMembers(token, tenantId);
-}
-
-// Cached per token and tenant so switching tenants stays instant (see AGENTS.md)
-async function fetchMembers(token: string, tenantId: string): Promise<Member[]> {
-  "use cache";
-  const response = await apiFetch("/members", { token, tenantId });
-  if (!response.ok) {
-    throw new Error(`Failed to load members (${response.status})`);
+  if (!Array.isArray(result.data)) {
+    throw new Error("The members response was incomplete.");
   }
-  return response.json();
+  return result.data;
 }
