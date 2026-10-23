@@ -1,0 +1,123 @@
+name: CI/CD
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tenant-portal-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.8.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Generate Prisma client
+        run: pnpm --filter api db:generate
+
+      - name: Check API
+        run: |
+          pnpm --filter api lint
+          pnpm --filter api test
+          pnpm --filter api build
+      - name: Test API HTTP startup
+        run: pnpm --filter api test:e2e
+        env:
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/ci
+          JWT_SECRET: github-actions-test-only
+
+      - name: Check portal
+        run: |
+          pnpm --filter portal lint
+          pnpm --filter portal exec next build --webpack
+          pnpm --filter portal exec tsc --noEmit
+
+  deploy-api:
+    name: Deploy API to Render
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}
+    steps:
+      - name: Deploy tested commit and wait for Render
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$RENDER_API_KEY" || -z "$RENDER_SERVICE_ID" ]]; then
+            echo "Set RENDER_API_KEY and RENDER_SERVICE_ID in GitHub Actions settings." >&2
+            exit 1
+          fi
+
+          api="https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys"
+          deploy=$(curl --fail-with-body --silent --show-error \
+            --request POST "$api" \
+            --header "Authorization: Bearer $RENDER_API_KEY" \
+            --header "Content-Type: application/json" \
+            --data "{\"commitId\":\"$GITHUB_SHA\"}")
+          deploy_id=$(jq -er '.id' <<< "$deploy")
+
+          for attempt in {1..180}; do
+            details=$(curl --fail-with-body --silent --show-error --retry 3 \
+              "$api/$deploy_id" \
+              --header "Authorization: Bearer $RENDER_API_KEY")
+            status=$(jq -er '.status' <<< "$details")
+            echo "Render deploy $deploy_id: $status"
+            case "$status" in
+              live) exit 0 ;;
+              build_failed|pre_deploy_failed|update_failed|canceled|deactivated) exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "Render deployment did not finish within 30 minutes." >&2
+          exit 1
+
+  deploy-portal:
+    name: Deploy portal to Vercel
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: deploy-api
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check Vercel settings
+        shell: bash
+        run: |
+          if [[ -z "$VERCEL_TOKEN" || -z "$VERCEL_ORG_ID" || -z "$VERCEL_PROJECT_ID" ]]; then
+            echo "Set VERCEL_TOKEN, VERCEL_ORG_ID, and VERCEL_PROJECT_ID in GitHub Actions settings." >&2
+            exit 1
+          fi
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+      - name: Pull production settings
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+      - name: Build portal for Vercel
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+      - name: Deploy portal to production
+        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"

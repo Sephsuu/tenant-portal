@@ -83,6 +83,26 @@ Run these from the repo root.
 
 After changing `app/api/prisma/schema.prisma`, run `pnpm db:migrate --name <change>` and then `pnpm --filter api db:generate`.
 
+## CI/CD
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on pull requests, pushes to `main`, and manual dispatch. **Verify** installs locked pnpm dependencies, generates Prisma, runs API and portal lint, runs API unit and HTTP startup tests, builds both apps, and checks portal TypeScript. The HTTP startup test uses a dummy database URL and does not read or change Neon.
+
+After **Verify** succeeds on `main`, GitHub Actions deploys that exact commit to Render, waits for it to become live, then builds and deploys the portal to Vercel. Pull requests only run checks. To activate deployment, add these in **GitHub repository → Settings → Secrets and variables → Actions**:
+
+| Type | Name | Value |
+|---|---|---|
+| Secret | `RENDER_API_KEY` | Render account API key |
+| Variable | `RENDER_SERVICE_ID` | API service ID (`srv-...`) |
+| Secret | `VERCEL_TOKEN` | Vercel access token |
+| Variable | `VERCEL_ORG_ID` | Vercel team/account ID from the linked project's `.vercel/project.json` |
+| Variable | `VERCEL_PROJECT_ID` | Vercel project ID from the same file |
+
+In **Render → API service → Settings**, keep **Root Directory** empty, set **Build Command** to `corepack pnpm install --frozen-lockfile && corepack pnpm --filter api db:generate && corepack pnpm api:build`, and set **Start Command** to `corepack pnpm db:deploy && corepack pnpm api:start`. Set **Auto-Deploy** to **Off** so it does not race the workflow. The start command applies migrations before the API starts. Set `DATABASE_URL`, `JWT_SECRET`, and `PORTAL_URL` in the Render service environment. [Render deployment docs](https://render.com/docs/deploys), [Render deploy API](https://api-docs.render.com/reference/create-deploy).
+
+The portal's [`vercel.json`](app/portal/vercel.json) disables automatic Git deployments; the workflow deploys it with Vercel CLI instead. Keep the Vercel project **Root Directory** set to `app/portal` and its production `BACKEND_API_URL` set to the public Render API URL. [Vercel Git configuration](https://vercel.com/docs/project-configuration/git-configuration), [Vercel CLI deployment guide](https://vercel.com/kb/guide/how-can-i-use-github-actions-with-vercel).
+
+If `main` accepts pull requests, require **Verify** in GitHub branch protection. Seeding Neon remains a separate, deliberate step: `pnpm db:seed` with the correct Neon URL. Database credentials and the JWT secret stay in Render, not GitHub Actions.
+
 ## Environment variables
 
 All variables live in the root `.env`. `.env.example` lists every one of them.
